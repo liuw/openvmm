@@ -703,58 +703,94 @@ pub struct Xsave {
 }
 
 impl Xsave {
-    fn normalize(&mut self) {
-        let (mut fxsave, data) = Ref::<_, Fxsave>::from_prefix(self.data.as_mut_bytes()).unwrap();
-        let header = XsaveHeader::mut_from_prefix(data).unwrap().0; // TODO: zerocopy: ref-from-prefix: use-rest-of-range (https://github.com/microsoft/openvmm/issues/759)
+    fn normalize(&mut self, caps: &X86PartitionCapabilities) {
+        {
+            let (mut fxsave, data) =
+                Ref::<_, Fxsave>::from_prefix(self.data.as_mut_bytes()).unwrap();
+            let header = XsaveHeader::mut_from_prefix(data).unwrap().0; // TODO: zerocopy: ref-from-prefix: use-rest-of-range (https://github.com/microsoft/openvmm/issues/759)
 
-        // Clear the mxcsr mask since it's ignored in the restore process and
-        // will only cause xsave comparisons to fail.
-        fxsave.mxcsr_mask = 0;
+            // Clear the mxcsr mask since it's ignored in the restore process and
+            // will only cause xsave comparisons to fail.
+            fxsave.mxcsr_mask = 0;
 
-        // Clear SSE state if it's not actually set to anything interesting.
-        // This normalizes behavior between mshv (which always sets SSE in
-        // xstate_bv) and KVM (which does not).
-        if header.xstate_bv & XFEATURE_SSE != 0 {
-            if fxsave.xmm.iter().eq(std::iter::repeat_n(&[0; 16], 16))
-                && fxsave.mxcsr == DEFAULT_MXCSR
-            {
-                header.xstate_bv &= !XFEATURE_SSE;
+            // Clear SSE state if it's not actually set to anything interesting.
+            // This normalizes behavior between mshv (which always sets SSE in
+            // xstate_bv) and KVM (which does not).
+            if header.xstate_bv & XFEATURE_SSE != 0 {
+                if fxsave.xmm.iter().eq(std::iter::repeat_n(&[0; 16], 16))
+                    && fxsave.mxcsr == DEFAULT_MXCSR
+                {
+                    header.xstate_bv &= !XFEATURE_SSE;
+                }
+            } else {
+                fxsave.xmm.fill(Default::default());
             }
-        } else {
-            fxsave.xmm.fill(Default::default());
-        }
 
-        if header.xstate_bv & (XFEATURE_SSE | XFEATURE_YMM) == 0 {
-            fxsave.mxcsr = 0;
-        }
+            if header.xstate_bv & (XFEATURE_SSE | XFEATURE_YMM) == 0 {
+                fxsave.mxcsr = 0;
+            }
 
-        // Clear init FPU state as well.
-        if header.xstate_bv & XFEATURE_X87 != 0 {
-            if fxsave.fcw == INIT_FCW
-                && fxsave.fsw == 0
-                && fxsave.ftw == 0
-                && fxsave.fop == 0
-                && fxsave.fip == 0
-                && fxsave.fdp == 0
-                && fxsave.st == [[0; 16]; 8]
-            {
+            // Clear init FPU state as well.
+            if header.xstate_bv & XFEATURE_X87 != 0 {
+                if fxsave.fcw == INIT_FCW
+                    && fxsave.fsw == 0
+                    && fxsave.ftw == 0
+                    && fxsave.fop == 0
+                    && fxsave.fip == 0
+                    && fxsave.fdp == 0
+                    && fxsave.st == [[0; 16]; 8]
+                {
+                    fxsave.fcw = 0;
+                    header.xstate_bv &= !XFEATURE_X87;
+                }
+            } else {
                 fxsave.fcw = 0;
-                header.xstate_bv &= !XFEATURE_X87;
+                fxsave.fsw = 0;
+                fxsave.ftw = 0;
+                fxsave.fop = 0;
+                fxsave.fip = 0;
+                fxsave.fdp = 0;
+                fxsave.st.fill(Default::default());
             }
-        } else {
-            fxsave.fcw = 0;
-            fxsave.fsw = 0;
-            fxsave.ftw = 0;
-            fxsave.fop = 0;
-            fxsave.fip = 0;
-            fxsave.fdp = 0;
-            fxsave.st.fill(Default::default());
+
+            // Clear the portion of the xsave legacy region that's specified to not
+            // to be used by the processor. Never versions of KVM put garbage values
+            // in here for some (possibly incorrect) reason.
+            fxsave.unused.fill(0);
         }
 
-        // Clear the portion of the xsave legacy region that's specified to not
-        // to be used by the processor. Never versions of KVM put garbage values
-        // in here for some (possibly incorrect) reason.
-        fxsave.unused.fill(0);
+        // Clear xstate_bv bits for extended features (bits 2+) whose data is
+        // all zeros (the init state). This normalizes differences between
+        // hypervisors that may or may not report features as active when they
+        // are in their init state (e.g. KVM sets PKRU active at reset).
+        let header = XsaveHeader::ref_from_prefix(&self.data.as_bytes()[XSAVE_LEGACY_LEN..])
+            .unwrap()
+            .0;
+        let xcomp_bv = header.xcomp_bv;
+        let xstate_bv = header.xstate_bv;
+        let mut new_xstate_bv = xstate_bv;
+        let mut cur = XSAVE_VARIABLE_OFFSET;
+        for i in 2..63u64 {
+            if xcomp_bv & (1 << i) != 0 {
+                let feature = &caps.xsave.feature_info[i as usize];
+                let len = feature.len as usize;
+                if feature.align {
+                    cur = (cur + 63) & !63;
+                }
+                if xstate_bv & (1 << i) != 0
+                    && self.data.as_bytes()[cur..cur + len].iter().all(|&b| b == 0)
+                {
+                    new_xstate_bv &= !(1 << i);
+                }
+                cur += len;
+            }
+        }
+        if new_xstate_bv != xstate_bv {
+            XsaveHeader::mut_from_prefix(&mut self.data.as_mut_bytes()[XSAVE_LEGACY_LEN..])
+                .unwrap()
+                .0
+                .xstate_bv = new_xstate_bv;
+        }
     }
 
     /// Construct from the xsave compact format.
@@ -764,7 +800,7 @@ impl Xsave {
         aligned.as_mut_bytes().copy_from_slice(data);
         let mut this = Self { data: aligned };
 
-        this.normalize();
+        this.normalize(caps);
 
         // Some versions of the MS hypervisor fail to set xstate_bv for
         // supervisor states. In this case, force-enable them--this is always
@@ -813,7 +849,7 @@ impl Xsave {
                 cur += len;
             }
         }
-        this.normalize();
+        this.normalize(caps);
         this
     }
 
