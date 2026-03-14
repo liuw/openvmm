@@ -87,6 +87,9 @@ pub struct X86PartitionCapabilities {
     /// The hypervisor has a broken implementation setting dr6, where bit 16 is
     /// forced on even if the processor supports TSX.
     pub dr6_tsx_broken: bool,
+    /// The hypervisor forces the accessed bit (bit 0 of segment type) on
+    /// present segments, so register state cannot be compared exactly.
+    pub segment_access_bit_forced: bool,
     /// EFER.NXE is forced on. This is set for TDX 1.5 partitions, which require
     /// this.
     pub nxe_forced_on: bool,
@@ -130,6 +133,7 @@ impl X86PartitionCapabilities {
             can_freeze_time: false,
             xsaves_state_bv_broken: false,
             dr6_tsx_broken: false,
+            segment_access_bit_forced: false,
             nxe_forced_on: false,
         };
 

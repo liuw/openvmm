@@ -299,6 +299,7 @@ impl ProtoPartition for KvmProtoPartition<'_> {
         .map_err(KvmError::Capabilities)?;
 
         caps.can_freeze_time = false;
+        caps.segment_access_bit_forced = true;
 
         for vp_info in self.config.processor_topology.vps_arch() {
             self.vm.add_vp(vp_info.apic_id)?;

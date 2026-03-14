@@ -289,6 +289,10 @@ impl StateElement<X86PartitionCapabilities, X86VpInfo> for Registers {
         true
     }
 
+    fn can_compare(caps: &X86PartitionCapabilities) -> bool {
+        !caps.segment_access_bit_forced
+    }
+
     fn at_reset(caps: &X86PartitionCapabilities, _vp_info: &X86VpInfo) -> Self {
         let cs = SegmentRegister {
             base: 0xffff0000,
