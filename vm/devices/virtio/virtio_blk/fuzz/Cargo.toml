@@ -1,0 +1,39 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+[package]
+name = "fuzz_virtio_blk"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+arbitrary = { workspace = true, features = ["derive"] }
+disklayer_ram.workspace = true
+guestmem.workspace = true
+pal_async.workspace = true
+pal_event.workspace = true
+virtio.workspace = true
+virtio_blk.workspace = true
+vmcore.workspace = true
+xtask_fuzz.workspace = true
+zerocopy.workspace = true
+
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+libfuzzer-sys.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[package.metadata.xtask.fuzz.onefuzz-allowlist]
+fuzz_virtio_blk = ["**/*.rs", "../src/**/*.rs"]
+
+[[bin]]
+name = "fuzz_virtio_blk"
+path = "fuzz_virtio_blk.rs"
+test = false
+doc = false
+doctest = false
+
+[lints]
+workspace = true

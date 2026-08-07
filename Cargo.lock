@@ -2791,6 +2791,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "fuzz_virtio_blk"
+version = "0.0.0"
+dependencies = [
+ "arbitrary",
+ "disklayer_ram",
+ "guestmem",
+ "libfuzzer-sys",
+ "pal_async",
+ "pal_event",
+ "virtio",
+ "virtio_blk",
+ "vmcore",
+ "xtask_fuzz",
+ "zerocopy",
+]
+
+[[package]]
 name = "fuzz_x86emu"
 version = "0.0.0"
 dependencies = [
