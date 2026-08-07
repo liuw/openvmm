@@ -2808,6 +2808,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "fuzz_virtio_net"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "arbitrary",
+ "async-trait",
+ "guestmem",
+ "inspect",
+ "libfuzzer-sys",
+ "net_backend",
+ "net_backend_resources",
+ "pal_async",
+ "pal_event",
+ "parking_lot",
+ "virtio",
+ "virtio_net",
+ "vmcore",
+ "xtask_fuzz",
+]
+
+[[package]]
 name = "fuzz_x86emu"
 version = "0.0.0"
 dependencies = [
